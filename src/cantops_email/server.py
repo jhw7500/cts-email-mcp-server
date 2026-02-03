@@ -5,7 +5,13 @@ from .client import EmailClient
 from . import document_loader
 
 mcp = FastMCP("Cantops-Email")
-client = EmailClient()
+
+def _get_client():
+    """EmailClient 인스턴스를 생성하거나 에러 메시지를 반환합니다."""
+    try:
+        return EmailClient(), None
+    except ValueError as e:
+        return None, f"❌ 설정 오류: {str(e)}\nsettings.json의 환경 변수(EMAIL_USER, EMAIL_PASSWORD)를 확인해주세요."
 
 def _format_email_list_table(emails):
     """이메일 리스트를 Markdown 표로 변환"""
@@ -28,6 +34,9 @@ def _format_email_list_table(emails):
 @mcp.tool()
 def list_emails(count: int = 10):
     """최근 이메일 목록을 깔끔한 표 형식으로 조회합니다."""
+    client, error = _get_client()
+    if error: return error
+    
     emails = client.list_emails(count)
     return _format_email_list_table(emails)
 
@@ -36,13 +45,16 @@ def read_email(email_id: int):
     """
     특정 이메일의 내용을 읽기 좋은 보고서 형식으로 보여줍니다.
     """
+    client, error = _get_client()
+    if error: return error
+
     email_data = client.get_email(email_id)
     if not email_data:
         return f"❌ ID {email_id}번 이메일을 찾을 수 없습니다."
 
     # 첨부파일 리스트 포맷팅
     attachments = email_data.get('attachments', [])
-    att_str = ", ".join([f"`{f}`" for f in attachments]) if attachments else "(없음)"
+    att_str = ", ".join([f'`{f}`' for f in attachments]) if attachments else "(없음)"
 
     markdown_report = f"""
 # 📧 이메일 상세 내용 (ID: {email_data['id']})
@@ -64,6 +76,9 @@ def read_email(email_id: int):
 @mcp.tool()
 def download_attachment(email_id: int, filename: str, save_path: str = "./downloads"):
     """첨부파일 다운로드 결과를 명확하게 알립니다."""
+    client, error = _get_client()
+    if error: return error
+
     result = client.download_file(email_id, filename, save_path)
     if result.startswith("Success"):
         # 성공 메시지에서 경로 추출
