@@ -1,7 +1,10 @@
 import poplib
+import smtplib
 import email
 import os
 import sys
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Optional, Any
 from . import utils
 
@@ -53,7 +56,6 @@ class EmailClient:
         finally: self.disconnect()
 
     def search_emails(self, keyword: str, limit: int = 50):
-        """제목 또는 발송인에서 키워드를 검색합니다."""
         if not self.connect(): return []
         try:
             num_messages = len(self.connection.list()[1])
@@ -106,3 +108,22 @@ class EmailClient:
                     return f"Success: {filename} saved to {filepath}"
             return "Error: File not found"
         finally: self.disconnect()
+
+    def send_email(self, to_email: str, subject: str, body: str):
+        """SMTP를 통해 이메일을 발송합니다."""
+        smtp_server = "smtp.hiworks.co.kr"
+        smtp_port = 465
+        
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = self.user
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
+            
+            with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+                server.login(self.user, self.password)
+                server.send_message(msg)
+            return f"Success: 이메일이 {to_email}에게 성공적으로 발송되었습니다."
+        except Exception as e:
+            return f"Error: 이메일 발송 실패 - {str(e)}"

@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import re
 from mcp.server.fastmcp import FastMCP
 
 def log(msg):
@@ -43,8 +44,6 @@ def _format_email_list_table(emails):
 def list_emails(count: int = 10):
     """
     [지침] 최근 이메일 목록(ID, 날짜, 발송인, 제목)만 조회합니다.
-    - 사용자가 '메일 확인', '조회' 등 일반적인 요청을 할 때 이 도구만 사용하십시오.
-    - 목록을 보여준 후, 사용자의 추가 명령 없이 자동으로 read_email이나 download_attachment를 호출하지 마십시오.
     """
     client, error = _get_client()
     if error: return error
@@ -58,8 +57,6 @@ def list_emails(count: int = 10):
 def search_emails(keyword: str, limit: int = 50):
     """
     [지침] 제목이나 보낸 사람 이름에서 키워드를 검색합니다.
-    - 검색 결과만 깔끔한 표 형식으로 보여주십시오.
-    - 검색 후 자동으로 다른 도구를 호출하지 마십시오.
     """
     client, error = _get_client()
     if error: return error
@@ -74,9 +71,7 @@ def search_emails(keyword: str, limit: int = 50):
 @mcp.tool()
 def read_email(email_id: int):
     """
-    [지침] 특정 ID의 이메일 본문 내용을 읽습니다.
-    - 사용자가 특정 메일 ID를 지정하여 '읽어줘' 또는 '내용 보여줘'라고 명시적으로 요청한 경우에만 호출하십시오.
-    - 목록 조회(list_emails) 결과에 따라 AI가 판단하여 자동으로 이 도구를 호출하는 것을 엄격히 금지합니다.
+    [지침] 특정 ID의 이메일 본문 내용을 읽습니다. 명시적 요청 시에만 사용하십시오.
     """
     client, error = _get_client()
     if error: return error
@@ -85,16 +80,51 @@ def read_email(email_id: int):
         if not email_data: return f"❌ ID {email_id}번 이메일을 찾을 수 없습니다."
         att_str = ", ".join([f'`{f}`' for f in email_data.get('attachments', [])]) or "(없음)"
         return f"\n# 📧 이메일 상세 내용 (ID: {email_data['id']})\n\n| 항목 | 내용 |\n|---|---|
-| **보낸 사람** | {email_data['from']} |\n| **날짜** | {email_data['date']} |\n| **제목** | {email_data['subject']} |\n| **첨부파일** | {att_str} |\n\n## 📝 본문 내용\n---\n{email_data['body']}\n---"
+| **보낸 사람** | {email_data['from']} |\n| **날짜** | {email_data['date']} |\n| **제목** | {email_data['subject']} |\n| **첨부파일** | {att_str} |\n\n## 📝 본문 내용
+---
+{email_data['body']}
+---"
     except Exception as e:
         return f"❌ 메일 읽기 실패: {str(e)}"
 
 @mcp.tool()
+def send_email(to_email: str, subject: str, body: str):
+    """
+    [🚨 중요: 지침] 이메일을 발송합니다.
+    - 사용자가 발송 내용(수신인, 제목, 본문)을 확인하고 명시적으로 '보내줘'라고 승인한 경우에만 실행하십시오.
+    - AI가 판단하여 자동으로 이메일을 발송하는 행위를 엄격히 금지합니다.
+    - 테스트 시에는 수신인을 본인(환경변수의 EMAIL_USER)으로 설정하는 것을 권장합니다.
+    """
+    client, error = _get_client()
+    if error: return error
+    try:
+        return client.send_email(to_email, subject, body)
+    except Exception as e:
+        return f"❌ 이메일 발송 중 에러 발생: {str(e)}"
+
+@mcp.tool()
+def analyze_and_extract_schedule(text: str):
+    """
+    [지침] 텍스트(이메일 본문 등)에서 날짜, 시간, 장소, 안건 등의 일정을 추출하여 정리합니다.
+    - 이 도구는 실제 캘린더에 등록하지 않고, 등록하기 위한 정보를 구조화하여 제안만 합니다.
+    """
+    # 간단한 정규식 기반 추출 예시 (AI가 실제로는 텍스트를 분석하여 더 잘 정리함)
+    date_pattern = r'\d{1,2}월\s?\d{1,2}일'
+    time_pattern = r'\d{1,2}시(?:\s?\d{1,2}분)?'
+    
+    dates = re.findall(date_pattern, text)
+    times = re.findall(time_pattern, text)
+    
+    report = "🗓️ **추출된 일정 제안**\n\n"
+    if dates: report += f"- **날짜**: {', '.join(set(dates))}\n"
+    if times: report += f"- **시간**: {', '.join(set(times))}\n"
+    report += "\n---\n위 내용을 캘린더에 등록하시겠습니까? (현재는 정보 추출 기능만 제공됩니다.)"
+    return report
+
+@mcp.tool()
 def download_attachment(email_id: int, filename: str, save_path: str = "./downloads"):
     """
-    [지침] 특정 이메일의 첨부파일을 다운로드합니다.
-    - 사용자가 파일명을 언급하며 '다운로드해줘', '파일 저장해줘'라고 명시적으로 요청한 경우에만 호출하십시오.
-    - AI가 필요하다고 판단하여 자동으로 파일을 다운로드하는 행위를 엄격히 금지합니다.
+    [지침] 특정 이메일의 첨부파일을 다운로드합니다. 명시적 요청 시에만 사용하십시오.
     """
     client, error = _get_client()
     if error: return error
@@ -109,8 +139,7 @@ def download_attachment(email_id: int, filename: str, save_path: str = "./downlo
 @mcp.tool()
 def read_document(file_path: str):
     """
-    [지침] 로컬 파일(.pptx, .xlsx, .pdf, .txt 등)의 내용을 텍스트로 읽습니다.
-    - 사용자가 특정 파일을 읽어달라고 요청했을 때만 사용하십시오.
+    [지침] 로컬 파일의 내용을 텍스트로 읽습니다.
     """
     if not os.path.exists(file_path): return f"❌ 파일이 존재하지 않습니다: `{file_path}`"
     try:
