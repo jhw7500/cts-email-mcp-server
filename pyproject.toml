@@ -1,6 +1,6 @@
 [project]
 name = "cts-email-mcp"
-version = "1.1.0"
+version = "1.1.1"
 description = "Cantops Enterprise Email & Document MCP Server"
 dependencies = [
     "mcp[server]",
