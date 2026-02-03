@@ -9,7 +9,6 @@ class EmailClient:
     def __init__(self):
         self.server = "pop3.hiworks.co.kr"
         self.port = 995
-        # 계정 정보를 환경 변수에서 가져옵니다.
         self.user = os.environ.get("EMAIL_USER")
         self.password = os.environ.get("EMAIL_PASSWORD")
         
@@ -29,19 +28,19 @@ class EmailClient:
 
     def disconnect(self):
         if self.connection:
-            try: self.connection.quit() # type: ignore
+            try: self.connection.quit()
             except: pass
             self.connection = None
 
     def list_emails(self, count=10):
         if not self.connect(): return []
         try:
-            num_messages = len(self.connection.list()[1]) # type: ignore
+            num_messages = len(self.connection.list()[1])
             start = max(1, num_messages - count + 1)
             results = []
             for i in range(num_messages, start - 1, -1):
                 try:
-                    resp, lines, _ = self.connection.top(i, 0) # type: ignore
+                    resp, lines, _ = self.connection.top(i, 0)
                     msg = email.message_from_bytes(b'\r\n'.join(lines))
                     results.append({
                         "id": i,
@@ -53,10 +52,34 @@ class EmailClient:
             return results
         finally: self.disconnect()
 
+    def search_emails(self, keyword: str, limit: int = 50):
+        """제목 또는 발송인에서 키워드를 검색합니다."""
+        if not self.connect(): return []
+        try:
+            num_messages = len(self.connection.list()[1])
+            start = max(1, num_messages - limit + 1)
+            results = []
+            for i in range(num_messages, start - 1, -1):
+                try:
+                    resp, lines, _ = self.connection.top(i, 0)
+                    msg = email.message_from_bytes(b'\r\n'.join(lines))
+                    subj = utils.clean_header(msg.get("Subject"))
+                    frm = utils.clean_header(msg.get("From"))
+                    if keyword.lower() in subj.lower() or keyword.lower() in frm.lower():
+                        results.append({
+                            "id": i,
+                            "date": utils.clean_header(msg.get("Date")),
+                            "from": frm,
+                            "subject": subj
+                        })
+                except: continue
+            return results
+        finally: self.disconnect()
+
     def get_email(self, email_id: int):
         if not self.connect(): return None
         try:
-            _, lines, _ = self.connection.retr(email_id) # type: ignore
+            _, lines, _ = self.connection.retr(email_id)
             msg = email.message_from_bytes(b'\r\n'.join(lines))
             return {
                 "id": email_id,
@@ -71,10 +94,9 @@ class EmailClient:
     def download_file(self, email_id: int, filename: str, save_path: str):
         if not self.connect(): return "Error: Connection failed"
         try:
-            _, lines, _ = self.connection.retr(email_id) # type: ignore
+            _, lines, _ = self.connection.retr(email_id)
             msg = email.message_from_bytes(b'\r\n'.join(lines))
             for part in msg.walk():
-                # 파일명 비교 시 디코딩 처리
                 part_filename = part.get_filename()
                 if part_filename and utils.clean_header(part_filename) == filename:
                     if not os.path.exists(save_path): os.makedirs(save_path)
