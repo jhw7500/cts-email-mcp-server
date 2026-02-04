@@ -127,6 +127,7 @@ function getClient() {
         throw new Error("EMAIL_USER, EMAIL_PASSWORD required in environment");
     return new Pop3Client(user, pass);
 }
+// --- TOOLS ---
 server.tool("list_emails", "List recent emails in a table format", { count: z.number().default(10) }, async ({ count }) => {
     const client = getClient();
     try {
@@ -210,6 +211,87 @@ ${email.body.trim()}
         client.quit();
     }
 });
+server.tool("fetch_recent_emails", "Fetch full content of recent emails including reply history (Batch)", { count: z.number().default(5) }, async ({ count }) => {
+    const client = getClient();
+    try {
+        await client.connect();
+        await client.login();
+        const headers = await client.list(count);
+        if (headers.length === 0)
+            return { content: [{ type: "text", text: "📭 No emails found." }] };
+        const results = [];
+        for (const header of headers) {
+            try {
+                const email = await client.getEmail(header.id);
+                // Increased limit to 20,000 to include full reply history
+                const body = email.body.trim();
+                const truncated = body.length > 20000;
+                results.push(`
+==================================================
+📧 EMAIL ID: ${email.id}
+📅 DATE: ${email.date}
+👤 FROM: ${email.from}
+📢 SUBJECT: ${email.subject}
+--------------------------------------------------
+${body.slice(0, 20000)}${truncated ? "\n...(truncated for memory)..." : ""}
+==================================================
+`);
+            }
+            catch (e) {
+                results.push(`❌ Error fetching ID ${header.id}: ${e.message}`);
+            }
+        }
+        return { content: [{ type: "text", text: results.join("\n") }] };
+    }
+    catch (e) {
+        return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+    finally {
+        client.quit();
+    }
+});
+server.tool("fetch_email_thread", "Find all emails sharing a specific subject to reconstruct history (Scan last 100)", { subject_keyword: z.string() }, async ({ subject_keyword }) => {
+    const client = getClient();
+    try {
+        await client.connect();
+        await client.login();
+        // Scan last 100 emails for thread matching
+        const allHeaders = await client.list(100);
+        // Clean subject (remove RE:, FW:, etc) for looser matching if needed, 
+        // but simple inclusion is safer for now.
+        const threadHeaders = allHeaders.filter(e => e.subject?.toLowerCase().includes(subject_keyword.toLowerCase()));
+        if (threadHeaders.length === 0) {
+            return { content: [{ type: "text", text: `🔍 No emails found with subject containing "${subject_keyword}".` }] };
+        }
+        // Sort by ID (Date) Ascending to show history flow
+        threadHeaders.sort((a, b) => a.id - b.id);
+        const results = [];
+        results.push(`## 🧵 Thread History: "${subject_keyword}" (${threadHeaders.length} emails)\n`);
+        for (const header of threadHeaders) {
+            try {
+                const email = await client.getEmail(header.id);
+                results.push(`
+### [${header.id}] ${email.date ? new Date(email.date).toLocaleString() : 'Unknown Date'}
+**From:** ${email.from}
+**Subject:** ${email.subject}
+
+${email.body.trim().slice(0, 10000)}
+---
+`);
+            }
+            catch (e) {
+                results.push(`❌ Error fetching ID ${header.id}: ${e.message}`);
+            }
+        }
+        return { content: [{ type: "text", text: results.join("\n") }] };
+    }
+    catch (e) {
+        return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+    finally {
+        client.quit();
+    }
+});
 server.tool("download_attachment", "Download an attachment", { email_id: z.number(), filename: z.string(), save_path: z.string().default("./downloads") }, async ({ email_id, filename, save_path }) => {
     const client = getClient();
     try {
@@ -223,7 +305,7 @@ server.tool("download_attachment", "Download an attachment", { email_id: z.numbe
             fs.mkdirSync(save_path, { recursive: true });
         const filePath = path.join(save_path, filename);
         fs.writeFileSync(filePath, attachment.content);
-        return { content: [{ type: "text", text: `✅ Downloaded: 
+        return { content: [{ type: "text", text: `✅ Downloaded: \
 ${filePath}
 ` }] };
     }
@@ -265,49 +347,10 @@ server.tool("read_document", "Extract text from local document (pptx, docx, xlsx
         const text = await extractor.extractText({ input: file_path, type: "file" });
         return { content: [{ type: "text", text: `## 📄 ${path.basename(file_path)}
 
-\`\`\`text\n${text}\n\`\`\`` }] };
+\n\n\ttext\n${text}\n\n\t\n\n\t` }] };
     }
     catch (e) {
         return { content: [{ type: "text", text: `Error reading doc: ${e.message}` }] };
-    }
-});
-// --- NEW TOOL for Batch Retrieval ---
-server.tool("fetch_recent_emails", "Fetch full content of multiple recent emails at once (Batch operation)", { count: z.number().default(5) }, async ({ count }) => {
-    const client = getClient();
-    try {
-        await client.connect();
-        await client.login();
-        // Get list first
-        const headers = await client.list(count);
-        if (headers.length === 0)
-            return { content: [{ type: "text", text: "📭 No emails found." }] };
-        const results = [];
-        // Fetch bodies sequentially
-        for (const header of headers) {
-            try {
-                const email = await client.getEmail(header.id);
-                results.push(`
-==================================================
-📧 EMAIL ID: ${email.id}
-📅 DATE: ${email.date}
-👤 FROM: ${email.from}
-📢 SUBJECT: ${email.subject}
---------------------------------------------------
-${email.body.trim().slice(0, 3000)}${email.body.length > 3000 ? "\n...(truncated)..." : ""}
-==================================================
-`);
-            }
-            catch (e) {
-                results.push(`❌ Error fetching ID ${header.id}: ${e.message}`);
-            }
-        }
-        return { content: [{ type: "text", text: results.join("\n") }] };
-    }
-    catch (e) {
-        return { content: [{ type: "text", text: `Error: ${e.message}` }] };
-    }
-    finally {
-        client.quit();
     }
 });
 async function main() {
