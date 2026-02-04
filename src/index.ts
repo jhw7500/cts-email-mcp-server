@@ -248,7 +248,9 @@ server.tool(
       const filePath = path.join(save_path, filename);
       fs.writeFileSync(filePath, attachment.content);
 
-      return { content: [{ type: "text", text: `✅ Downloaded: acktick${filePath}acktick` }] };
+      return { content: [{ type: "text", text: `✅ Downloaded: 
+${filePath}
+` }] };
     } catch (e: any) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }] };
     } finally {
@@ -298,11 +300,52 @@ server.tool(
       const text = await extractor.extractText({ input: file_path, type: "file" });
       return { content: [{ type: "text", text: `## 📄 ${path.basename(file_path)}
 
-\`\`\`text
-${text}
-\`\`\`` }] };
+\`\`\`text\n${text}\n\`\`\`` }] };
     } catch (e: any) {
       return { content: [{ type: "text", text: `Error reading doc: ${e.message}` }] };
+    }
+  }
+);
+
+// --- NEW TOOL for Batch Retrieval ---
+server.tool(
+  "fetch_recent_emails",
+  "Fetch full content of multiple recent emails at once (Batch operation)",
+  { count: z.number().default(5) },
+  async ({ count }) => {
+    const client = getClient();
+    try {
+      await client.connect();
+      await client.login();
+      // Get list first
+      const headers = await client.list(count);
+      if (headers.length === 0) return { content: [{ type: "text", text: "📭 No emails found." }] };
+
+      const results: string[] = [];
+      // Fetch bodies sequentially
+      for (const header of headers) {
+        try {
+            const email = await client.getEmail(header.id);
+            results.push(`
+==================================================
+📧 EMAIL ID: ${email.id}
+📅 DATE: ${email.date}
+👤 FROM: ${email.from}
+📢 SUBJECT: ${email.subject}
+--------------------------------------------------
+${email.body.trim().slice(0, 3000)}${email.body.length > 3000 ? "\n...(truncated)..." : ""}
+==================================================
+`);
+        } catch (e: any) {
+            results.push(`❌ Error fetching ID ${header.id}: ${e.message}`);
+        }
+      }
+      
+      return { content: [{ type: "text", text: results.join("\n") }] };
+    } catch (e: any) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    } finally {
+      client.quit();
     }
   }
 );
