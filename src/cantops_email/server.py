@@ -1,28 +1,10 @@
-import json
 import os
 import sys
-import re
-
-# PYTHONPATH 추가 (패키지 인식 보장)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
 from mcp.server.fastmcp import FastMCP
 
-def log(msg):
-    print(f"[*] {msg}", file=sys.stderr)
-
-try:
-    from cantops_email.client import EmailClient
-    from cantops_email import document_loader
-except ImportError:
-    try:
-        from client import EmailClient
-        import document_loader
-    except ImportError as e:
-        log(f"CRITICAL IMPORT ERROR: {e}")
+# 패키지 내부 상대 경로 임포트 (표준 방식)
+from .client import EmailClient
+from . import document_loader
 
 mcp = FastMCP("cts-email")
 
@@ -69,19 +51,19 @@ def search_emails(keyword: str, limit: int = 50):
 
 @mcp.tool()
 def read_email(email_id: int):
-    """메일 본문을 읽습니다. (ID 지정 필수)"""
+    """메일 본문을 읽습니다."""
     client, error = _get_client()
     if error: return error
     try:
         data = client.get_email(email_id)
-        if not data: return "❌ 메일을 찾을 수 없음."
+        if not data: return "❌ 메일 없음."
         att = ", ".join([f'`{f}`' for f in data.get('attachments', [])]) or "(없음)"
         return f"\n# 📧 ID: {data['id']}\n- From: {data['from']}\n- Date: {data['date']}\n- Attach: {att}\n\n## 본문\n---\n{data['body']}\n---\n"
     except Exception as e: return f"❌ 에러: {str(e)}"
 
 @mcp.tool()
 def send_email(to_email: str, subject: str, body: str):
-    """이메일을 발송합니다. (사용자 승인 후 실행)"""
+    """이메일을 발송합니다. (승인 필수)"""
     client, error = _get_client()
     if error: return error
     try:
@@ -99,7 +81,7 @@ def download_attachment(email_id: int, filename: str, save_path: str = "./downlo
 
 @mcp.tool()
 def read_document(file_path: str):
-    """로컬 문서 파일을 읽습니다."""
+    """문서 내용을 읽습니다."""
     if not os.path.exists(file_path): return "❌ 파일 없음."
     try:
         content = document_loader.extract_text_from_file(file_path)
