@@ -9,7 +9,6 @@ import fs from "fs";
 import path from "path";
 import { getTextExtractor } from "office-text-extractor";
 
-// --- POP3 Client Implementation (Lightweight) ---
 class Pop3Client {
   private socket: tls.TLSSocket | null = null;
   private host = "pop3.hiworks.co.kr";
@@ -20,7 +19,6 @@ class Pop3Client {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.socket = tls.connect(this.port, this.host, { rejectUnauthorized: false }, () => {
-        // Wait for greeting
         this.socket?.once('data', (data) => {
           if (data.toString().startsWith('+OK')) resolve();
           else reject(new Error('POP3 Greeting failed'));
@@ -38,7 +36,6 @@ class Pop3Client {
       const onData = (data: Buffer) => {
         buffer.push(data);
         const str = Buffer.concat(buffer).toString();
-        // Simple line checking
         if (str.includes('\r\n')) {
           this.socket?.removeListener('data', onData);
           resolve(str);
@@ -57,10 +54,10 @@ class Pop3Client {
       const buffer: Buffer[] = [];
       const onData = (data: Buffer) => {
         buffer.push(data);
-        const str = Buffer.concat(buffer).toString('binary'); // Preserve binary data
+        const str = Buffer.concat(buffer).toString('binary'); 
         if (str.endsWith('\r\n.\r\n')) {
           this.socket?.removeListener('data', onData);
-          resolve(str.slice(0, -5)); // Remove terminator
+          resolve(str.slice(0, -5)); 
         }
       };
       
@@ -76,12 +73,11 @@ class Pop3Client {
   }
 
   async list(count: number = 10): Promise<any[]> {
-    const statRes = await this.sendCommand("STAT"); // +OK nn mm
+    const statRes = await this.sendCommand("STAT"); 
     const total = parseInt(statRes.split(' ')[1]);
     const start = Math.max(1, total - count + 1);
     
     const results = [];
-    // Fetch headers in parallel (batching) is risky in POP3 stateful, so sequential
     for (let i = total; i >= start; i--) {
       try {
         const raw = await this.sendMultiLineCommand(`TOP ${i} 0`);
@@ -122,7 +118,6 @@ class Pop3Client {
   }
 }
 
-// --- Server Setup ---
 const server = new McpServer({
   name: "cts-email",
   version: "1.0.0"
@@ -148,8 +143,8 @@ server.tool(
       
       if (emails.length === 0) return { content: [{ type: "text", text: "📭 No emails found." }] };
 
-      let table = "| ID | Date | From | Subject |\n|---:|:---|:---|:---|
-";
+      let table = `| ID | Date | From | Subject |\n|---:|:---|:---|:---|
+`;
       emails.forEach(e => {
         const d = e.date ? new Date(e.date).toLocaleString().slice(0, 16) : "Unknown";
         const f = (e.from || "").replace(/\|/g, "&#124;");
@@ -175,7 +170,7 @@ server.tool(
     try {
       await client.connect();
       await client.login();
-      const emails = await client.list(limit); // Scan headers of recent emails
+      const emails = await client.list(limit); 
       const filtered = emails.filter(e => 
         (e.subject?.toLowerCase().includes(keyword.toLowerCase())) || 
         (e.from?.toLowerCase().includes(keyword.toLowerCase()))
@@ -210,9 +205,7 @@ server.tool(
       await client.login();
       const email = await client.getEmail(id);
       
-      const attList = email.attachments.map((a: any) => `
-${a.filename}
-`).join(", ") || "(None)";
+      const attList = email.attachments.map((a: any) => `\`${a.filename}\``).join(", ") || "(None)";
       const report = `
 # 📧 Email Detail (ID: ${email.id})
 
@@ -255,9 +248,7 @@ server.tool(
       const filePath = path.join(save_path, filename);
       fs.writeFileSync(filePath, attachment.content);
 
-      return { content: [{ type: "text", text: `✅ Downloaded: 
-${filePath}
-` }] };
+      return { content: [{ type: "text", text: `✅ Downloaded: acktick${filePath}acktick` }] };
     } catch (e: any) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }] };
     } finally {
@@ -307,18 +298,15 @@ server.tool(
       const text = await extractor.extractText({ input: file_path, type: "file" });
       return { content: [{ type: "text", text: `## 📄 ${path.basename(file_path)}
 
-
-text
+\`\`\`text
 ${text}
-
-` }] };
+\`\`\`` }] };
     } catch (e: any) {
       return { content: [{ type: "text", text: `Error reading doc: ${e.message}` }] };
     }
   }
 );
 
-// Start the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
