@@ -4,40 +4,33 @@ import sys
 import re
 from mcp.server.fastmcp import FastMCP
 
-# stdout 오염을 방지하기 위한 로그 함수
+# 모든 로그는 반드시 stderr로 출력 (stdout 보호)
 def log(msg):
     print(f"[*] {msg}", file=sys.stderr)
 
-# 패키징된 환경에서의 임포트를 위해 절대 경로 사용 시도
+# 가장 안정적인 패키지 내 임포트 방식
 try:
     from cantops_email.client import EmailClient
     from cantops_email import document_loader
 except ImportError:
-    # 로컬 실행 등 예외 상황 대응
+    log("상대 경로 임포트 시도...")
     try:
         from .client import EmailClient
         from . import document_loader
-    except ImportError:
-        try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            if current_dir not in sys.path:
-                sys.path.append(current_dir)
-            from client import EmailClient
-            import document_loader
-        except ImportError as e:
-            log(f"CRITICAL IMPORT ERROR: {e}")
+    except ImportError as e:
+        log(f"임포트 실패: {e}")
 
 mcp = FastMCP("cts-email")
 
 def _get_client():
+    user = os.environ.get("EMAIL_USER")
+    pw = os.environ.get("EMAIL_PASSWORD")
+    if not user or not pw:
+        return None, "❌ 설정 오류: EMAIL_USER, EMAIL_PASSWORD를 확인해주세요."
     try:
-        user = os.environ.get("EMAIL_USER")
-        pw = os.environ.get("EMAIL_PASSWORD")
-        if not user or not pw:
-            return None, "❌ 설정 오류: EMAIL_USER, EMAIL_PASSWORD 환경 변수가 누락되었습니다."
         return EmailClient(), None
     except Exception as e:
-        return None, f"❌ 클라이언트 초기화 실패: {str(e)}"
+        return None, f"❌ 초기화 실패: {str(e)}"
 
 def _format_email_list_table(emails):
     if not emails: return "📭 메일이 없습니다."
@@ -61,30 +54,30 @@ def list_emails(count: int = 10):
 
 @mcp.tool()
 def search_emails(keyword: str, limit: int = 50):
-    """키워드로 메일을 검색합니다."""
+    """제목/발송인 키워드로 메일을 검색합니다."""
     client, error = _get_client()
     if error: return error
     try:
         res = client.search_emails(keyword, limit)
-        if not res: return f"🔍 '{keyword}' 검색 결과 없음."
+        if not res: return f"🔍 '{keyword}' 결과 없음."
         return f"🔍 **'{keyword}' 검색 결과**\n\n" + _format_email_list_table(res)
     except Exception as e: return f"❌ 에러: {str(e)}"
 
 @mcp.tool()
 def read_email(email_id: int):
-    """메일 본문을 읽습니다. (ID 지정 필수)"""
+    """메일 본문을 읽습니다."""
     client, error = _get_client()
     if error: return error
     try:
         data = client.get_email(email_id)
-        if not data: return "❌ 메일을 찾을 수 없음."
+        if not data: return "❌ 메일 없음."
         att = ", ".join([f'`{f}`' for f in data.get('attachments', [])]) or "(없음)"
-        return f"\n# 📧 메일 상세 (ID: {data['id']})\n\n- From: {data['from']}\n- Date: {data['date']}\n- Attach: {att}\n\n## 📝 본문\n---\n{data['body']}\n---\n"
+        return f"\n# 📧 ID: {data['id']}\n- From: {data['from']}\n- Date: {data['date']}\n- Attach: {att}\n\n## 본문\n---\n{data['body']}\n---"
     except Exception as e: return f"❌ 에러: {str(e)}"
 
 @mcp.tool()
 def send_email(to_email: str, subject: str, body: str):
-    """이메일을 발송합니다. (사용자 승인 후 실행)"""
+    """이메일을 발송합니다. (승인 필수)"""
     client, error = _get_client()
     if error: return error
     try:
@@ -102,7 +95,7 @@ def download_attachment(email_id: int, filename: str, save_path: str = "./downlo
 
 @mcp.tool()
 def read_document(file_path: str):
-    """로컬 문서 파일을 읽습니다."""
+    """문서 내용을 읽습니다."""
     if not os.path.exists(file_path): return "❌ 파일 없음."
     try:
         content = document_loader.extract_text_from_file(file_path)
